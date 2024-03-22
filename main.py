@@ -5,17 +5,6 @@ import logging
 from pathlib import Path, PureWindowsPath
 
 
-def _verify_backup(target_path):
-    if target_path.exists():
-        modification_time = datetime.fromtimestamp(target_path.stat().st_mtime, timezone.utc)
-        if (datetime.now().astimezone(timezone.utc) - modification_time).total_seconds() < 28800:  # 8 hours
-            logging.info(f"Backup successfully updated: {target_path}")
-        else:
-            logging.error(f"Backup file not updated within the last 8 hours: {target_path}")
-    else:
-        logging.error(f"Backup file does not exist: {target_path}")
-
-
 class BackupManager:
     def __init__(self, source, target, db_location, servername, rstoollocation):
         self.source = source
@@ -53,7 +42,7 @@ class BackupManager:
 
                 if self._should_backup(last_edit_datetime):
                     self._perform_backup(model_path, target_path)
-                    _verify_backup(target_path)
+                    self._verify_backup(target_path)
         except Exception as e:
             logging.error(f"Error processing model at {full_model_path}: {e}")
 
@@ -68,6 +57,16 @@ class BackupManager:
             "-server", self.servername,
             "-destination", str(target_path), "-overwrite"
         ], capture_output=True)
+
+    def _verify_backup(self, target_path):
+        if target_path.exists():
+            modification_time = datetime.fromtimestamp(target_path.stat().st_mtime, timezone.utc)
+            if (datetime.now().astimezone(timezone.utc) - modification_time).total_seconds() < 28800:  # 8 hours
+                logging.info(f"Backup successfully updated: {target_path}")
+            else:
+                logging.error(f"Backup file not updated within the last 8 hours: {target_path}")
+        else:
+            logging.error(f"Backup file does not exist: {target_path}")
 
 
 # Set up logging
