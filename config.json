@@ -1,0 +1,8 @@
+{
+  "source": "C:\\ProgramData\\Autodesk\\Revit Server 2022\\Projects",
+  "target": "\\\\10.10.40.31\\BIM-Backup\\RVT-22",
+  "db_location": "C:\\ProgramData\\Autodesk\\Revit Server 2022\\Projects\\ModelLocationTable.db3",
+  "servername": "PL-V4-RVT22",
+  "rstoollocation": "C:\\Program Files\\Autodesk\\Revit Server 2022\\Tools\\RevitServerToolCommand\\RevitServerTool.exe",
+  "temp_folder": "C:\\Temp\\RevitBackups"
+}
