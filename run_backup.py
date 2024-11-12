@@ -27,10 +27,10 @@ backup_manager = BackupManager(backup_config)
 # Usage Examples:
 #
 # All models
-backup_manager.backup_all_models()
+#backup_manager.backup_all_models()
 #
 # Edited in 24 hours
-# backup_manager.backup_edited_models()
+backup_manager.backup_edited_models()
 #
 # Specific model with the path to the model
 # specific_model = "2411_С17_Omniyat\\C17A-YD-T1-ZZ-M3-I-IN-0801.rvt"

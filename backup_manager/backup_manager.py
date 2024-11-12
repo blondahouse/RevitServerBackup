@@ -45,8 +45,8 @@ class BackupManager:
         self.servername = config.servername
         self.rstoollocation = config.rstoollocation
 
-    def set_connection(self):
-        return sqlite3.connect(self.db_location)
+    def set_connection(self, db_path):
+        return sqlite3.connect(db_path)
 
     def backup_all_models(self):
         """
@@ -54,7 +54,7 @@ class BackupManager:
         """
         logging.info("Backup process started for all models.")
         try:
-            with self.set_connection() as connection:
+            with self.set_connection(self.db_location) as connection:
                 model_paths = self._get_all_paths(connection)
                 logging.info(f"Retrieved {len(model_paths)} model paths for backup.")
                 self._backup_selected_models(model_paths)
@@ -71,7 +71,7 @@ class BackupManager:
         """
         logging.info("Backup process started for edited models.")
         try:
-            with self.set_connection() as connection:
+            with self.set_connection(self.db_location) as connection:
                 model_paths = self._get_edited_paths(connection)
                 logging.info(f"Retrieved {len(model_paths)} edited model paths for backup.")
                 self._backup_selected_models(model_paths)
@@ -92,7 +92,7 @@ class BackupManager:
         """
         logging.info(f"Backup process started for specific model: {specific_model}")
         try:
-            with self.set_connection() as connection:
+            with self.set_connection(self.db_location) as connection:
                 model_paths = self._get_specific_path(connection, specific_model)
                 if model_paths:
                     logging.info(f"Starting backup for specific model: {model_paths[0]}")
@@ -134,7 +134,7 @@ class BackupManager:
         list: A list of model paths edited in the last 24 hours.
         """
         model_paths = self._get_all_paths(connection)
-        return [model_path for model_path in model_paths if self._was_edited_in_last_24_hours(model_path, connection)]
+        return [model_path for model_path in model_paths if self._was_edited_in_last_24_hours(model_path)]
 
     def _get_specific_path(self, connection, specific_model):
         """
@@ -158,7 +158,7 @@ class BackupManager:
             logging.error(f"Database error retrieving specific model '{specific_model}': {e}")
             return []
 
-    def _was_edited_in_last_24_hours(self, model_path, connection):
+    def _was_edited_in_last_24_hours(self, model_path):
         """
         Checks if a model was edited in the last 24 hours.
 
@@ -170,9 +170,10 @@ class BackupManager:
         bool: True if the model was edited in the last 24 hours, False otherwise.
         """
         try:
-            last_edit_datetime = self._get_last_edit_datetime(self._get_full_model_path(model_path), connection)
-            now_date_utc = datetime.now().astimezone(timezone.utc).replace(tzinfo=None)
-            return (now_date_utc - last_edit_datetime).total_seconds() < 86400  # 24 hours
+            with self.set_connection(self._get_full_model_path(model_path)) as connection:
+                last_edit_datetime = self._get_last_edit_datetime(self._get_full_model_path(model_path), connection)
+                now_date_utc = datetime.now().astimezone(timezone.utc).replace(tzinfo=None)
+                return (now_date_utc - last_edit_datetime).total_seconds() < 86400  # 24 hours
         except sqlite3.Error as e:
             logging.error(f"Database error determining if model '{model_path}' was edited in the last 24 hours: {e}")
             return False
