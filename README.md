@@ -25,23 +25,6 @@ The main orientation of this project is towards working with Google Drive or any
   - `pathlib`
 - **Google Drive or Similar Version Control-Enabled Storage**: To ensure versioning of backup files.
 
-## Project Structure
-```
-project_root/
-|-- run_backup.py
-|-- config.json
-|-- logs/
-|   |-- revit_backup.log
-|-- backup_manager/
-|   |-- __init__.py
-|   |-- revit_backup_manager.py
-```
-- **`run_backup.py`**: The main script that initializes the backup process using configuration from `config.json`.
-- **`config.json`**: A configuration file specifying paths, server information, and other settings for the backup.
-- **`logs/revit_backup.log`**: A log file recording backup actions, errors, and status messages.
-- **`backup_manager/`**: Contains the core logic of the backup process.
-  - **`revit_backup_manager.py`**: The primary module handling all the backup functionalities, including connecting to the Revit Server, performing backups, and verifying backup integrity.
-
 ## Usage
 ### Configuration
 1. Update `config.json` with your configuration details, including:
@@ -51,6 +34,7 @@ project_root/
    - Revit server name.
    - Path to the RevitServerTool executable.
    - Temporary folder path for intermediate storage.
+   - Your Google Drive Root Folder id
 
 ### Running the Backup
 - **Daily Execution**: The script can be scheduled to run daily using **Windows Task Scheduler**.
@@ -71,7 +55,8 @@ project_root/
   "db_location": "D:\\ProgramData\\Autodesk\\Revit Server 2022\\Projects\\ModelLocationTable.db3",
   "servername": "FI-V3-RVT22",
   "rstoollocation": "C:\\Program Files\\Autodesk\\Revit Server 2022\\Tools\\RevitServerToolCommand\\RevitServerTool",
-  "temp_folder": "C:\\Temp\\RevitBackup"
+  "temp_folder": "C:\\Temp\\RevitBackup",
+  "root_folder_id": "your_google_drive_root_folder_id"
 }
 ```
 

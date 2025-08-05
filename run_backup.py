@@ -19,7 +19,8 @@ backup_config = BackupConfig(
     db_location=config['db_location'],
     servername=config['servername'],
     rstoollocation=config['rstoollocation'],
-    temp_folder=config['temp_folder']
+    temp_folder=config['temp_folder'],
+    root_folder_id=config['root_folder_id']
 )
 
 backup_manager = BackupManager(backup_config)

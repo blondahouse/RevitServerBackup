@@ -1,8 +1,10 @@
 import sqlite3
+import traceback
 from datetime import datetime, timezone
 import logging
-from pathlib import Path
+from pathlib import Path, PurePath
 from dataclasses import dataclass
+from utils.gdrive import GoogleDriveAPI
 import shutil
 import subprocess
 import time
@@ -15,6 +17,7 @@ class BackupConfig:
     servername: str
     rstoollocation: str
     temp_folder: str
+    root_folder_id: str
 
 
 # noinspection SqlNoDataSourceInspection
@@ -41,6 +44,7 @@ class BackupManager:
         self.source = Path(config.source)
         self.target = Path(config.target)
         self.temp_folder = Path(config.temp_folder)
+        self.root_folder_id = config.root_folder_id
         self.db_location = config.db_location
         self.servername = config.servername
         self.rstoollocation = config.rstoollocation
@@ -201,7 +205,8 @@ class BackupManager:
         target_path = self.target / model_path
         try:
             self._create_temp_rvt(model_path, temp_path, self.rstoollocation, self.servername)
-            self._copy_to_target(model_path, temp_path, target_path)
+            # self._copy_to_target(model_path, temp_path, target_path)
+            self._upload_file_to_gdrive(temp_path, self.root_folder_id, model_path)
             self._verify_backup(model_path, target_path)
             self._clean_temp_folder(self.temp_folder)
             logging.info(f"Backup completed for model: {model_path} in {time.time() - start_time:.2f} seconds")
@@ -301,6 +306,77 @@ class BackupManager:
         except Exception as e:
             logging.error(f"Error copying backup to target location for model '{model_path}': {e}")
             raise
+
+    @staticmethod
+    def _upload_file_to_gdrive(
+                source_path,
+                drive_root_id,
+                drive_relative_path,
+                drive_api=None,
+                max_attempts=3,
+                wait_seconds=30
+        ):
+            """
+            Upload a file to Google Drive, creating the necessary folder structure.
+
+            :param source_path: Full path to the source file.
+            :param drive_root_id: Google Drive folder ID for the root of backups.
+            :param drive_relative_path: Subfolder path in Google Drive (e.g. '2612_2_Tel_Aviv').
+            :param drive_api: Optionally, a GoogleDriveAPI instance to reuse.
+            :param max_attempts: Attempts to upload the file to Google Drive.
+            :param wait_seconds: Waiting time between attempts.
+            """
+            try:
+                source = Path(source_path)
+                if not source.exists() or not source.is_file():
+                    logging.error(f"Source file does not exist: {source}")
+                    raise FileNotFoundError(f"Source file does not exist: {source}")
+
+                # Use provided API instance or create new one
+                if drive_api is None:
+                    drive_api = GoogleDriveAPI('credentials.json', 'token.json')
+
+                # Split into folder path and filename
+                rel_path = PurePath(drive_relative_path)
+                folder_path = str(rel_path.parent)
+                drive_filename = rel_path.name
+
+                # 1. Ensure the full folder chain exists, get final folder ID
+                try:
+                    logging.info(
+                        f"Preparing to create/find folder. Full target path: '{folder_path}', drive_root_id: '{drive_root_id}'")
+                    folder_id = drive_api.get_or_create_folder(folder_path, drive_root_id)
+                    logging.info(f"Google Drive folder '{drive_relative_path}' ready (ID: {folder_id})")
+                except Exception as e:
+                    logging.error(
+                        f"Error during get_or_create_folder for path '{folder_path}' "
+                        f"under root ID '{drive_root_id}': {e}\n{traceback.format_exc()}"
+                    )
+
+                # 2. Upload file to this folder, overwriting if exists
+                for attempt in range(1, max_attempts + 1):
+                    try:
+                        file_id = drive_api.upload_file(
+                            str(source),
+                            folder_id=folder_id,
+                            overwrite=True,
+                            drive_filename=drive_filename
+                        )
+                        logging.info(
+                            f"Uploaded '{source}' to Google Drive folder '{drive_relative_path}' as file ID {file_id}")
+                        break  # Success!
+                    except Exception as e:
+                        logging.error(f"Upload attempt {attempt} failed: {e}")
+                        if attempt < max_attempts:
+                            logging.info(f"Retrying in {wait_seconds} seconds...")
+                            time.sleep(wait_seconds)
+                        else:
+                            logging.error("Max upload attempts reached. Upload failed.")
+                            raise
+
+            except Exception as e:
+                logging.error(f"Error uploading file to Google Drive: {e}")
+                raise
 
     @staticmethod
     def _verify_backup(model_path, target_path):
