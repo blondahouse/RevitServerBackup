@@ -138,7 +138,16 @@ class BackupManager:
         list: A list of model paths edited in the last 24 hours.
         """
         model_paths = self._get_all_paths(connection)
-        return [model_path for model_path in model_paths if self._was_edited_in_last_24_hours(model_path)]
+        # return [model_path for model_path in model_paths if self._was_edited_in_last_24_hours(model_path)]
+        edited_paths = []
+        for model_path in model_paths:
+            try:
+                if self._was_edited_in_last_24_hours(model_path):
+                    edited_paths.append(model_path)
+            except Exception as e:
+                logging.error(f"Error checking edit status for model '{model_path}': {e}")
+                continue  # Skip this model, continue with others
+        return edited_paths
 
     def _get_specific_path(self, connection, specific_model):
         """
@@ -247,6 +256,8 @@ class BackupManager:
         try:
             cursor = connection.cursor()
             last_edit = cursor.execute(self.MAX_DATE_QUERY).fetchone()[0]
+            if not last_edit:
+                last_edit = '1900-01-01 00:00:00Z'
             return datetime.strptime(last_edit, self.DATETIME_FORMAT)
         except sqlite3.Error as e:
             logging.error(f"Error retrieving last edit time for '{full_model_path}': {e}")
