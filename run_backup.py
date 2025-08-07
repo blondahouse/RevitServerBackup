@@ -34,5 +34,5 @@ backup_manager = BackupManager(backup_config)
 backup_manager.backup_edited_models()
 #
 # Specific model with the path to the model
-# specific_model = "2411_С17_Omniyat\\C17A-YD-T1-ZZ-M3-I-IN-0801.rvt"
+# specific_model = "4174_MAHDI_AMJAD’S_VILLA\\YDZ_4174_MAHDI AMJAD'S VILLA_new_spa.rvt"
 # backup_manager.backup_specific_model(specific_model)

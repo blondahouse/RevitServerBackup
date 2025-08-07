@@ -49,8 +49,9 @@ class GoogleDriveAPI:
         return file.get('id')
 
     def find_file(self, filename, folder_id):
+        safe_filename = self.escape_drive_query_value(filename)
         # Looks for an existing file by name in the specified folder
-        query = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
+        query = f"name='{safe_filename}' and '{folder_id}' in parents and trashed=false"
         results = self.service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
         files = results.get('files', [])
         return files[0] if files else None
@@ -59,10 +60,11 @@ class GoogleDriveAPI:
         parts = path.strip('/').split('/')
         parent_id = root_folder_id
         for part in parts:
+            safe_part = self.escape_drive_query_value(part)
             query = (
                 f"mimeType='application/vnd.google-apps.folder' "
                 f"and trashed=false "
-                f"and name='{part}' "
+                f"and name='{safe_part}' "
                 f"and '{parent_id}' in parents"
             )
             results = self.service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
@@ -70,9 +72,19 @@ class GoogleDriveAPI:
             if files:
                 parent_id = files[0]['id']
             else:
-                metadata = {'name': part, 'mimeType': 'application/vnd.google-apps.folder'}
+                metadata = {'name': safe_part, 'mimeType': 'application/vnd.google-apps.folder'}
                 if parent_id:
                     metadata['parents'] = [parent_id]
                 folder = self.service.files().create(body=metadata, fields='id').execute()
                 parent_id = folder['id']
         return parent_id
+
+    @staticmethod
+    def escape_drive_query_value(value):
+        """
+        Escapes single quotes in a value for use in a Google Drive API query.
+        Leaves Unicode characters as is.
+        """
+        if not isinstance(value, str):
+            value = str(value)
+        return value.replace("'", "\\'")
