@@ -79,7 +79,6 @@ def setup_logging(log_dir: Path, instance_name: str) -> Path:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
-        encoding="utf-8",
         handlers=[
             logging.FileHandler(log_path, encoding="utf-8"),
             logging.StreamHandler(sys.stdout),
