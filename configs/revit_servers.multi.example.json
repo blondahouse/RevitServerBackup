@@ -1,0 +1,27 @@
+{
+  "backup_to_target": false,
+  "backup_to_gdrive": true,
+  "mode": "edited",
+  "instances": [
+    {
+      "name": "RVT-24",
+      "source": "C:\\ProgramData\\Autodesk\\Revit Server 2024\\Projects",
+      "target": "\\\\10.10.40.31\\BIM-Backup\\RVT-24",
+      "db_location": "C:\\ProgramData\\Autodesk\\Revit Server 2024\\Projects\\ModelLocationTable.db3",
+      "servername": "YOUR-SERVER-NAME",
+      "rstoollocation": "C:\\Program Files\\Autodesk\\Revit Server 2024\\Tools\\RevitServerToolCommand\\RevitServerTool.exe",
+      "temp_folder": "C:\\Temp\\RevitBackups\\RVT-24",
+      "root_folder_id": "google_drive_root_folder_id_for_rvt_24"
+    },
+    {
+      "name": "RVT-25",
+      "source": "C:\\ProgramData\\Autodesk\\Revit Server 2025\\Projects",
+      "target": "\\\\10.10.40.31\\BIM-Backup\\RVT-25",
+      "db_location": "C:\\ProgramData\\Autodesk\\Revit Server 2025\\Projects\\ModelLocationTable.db3",
+      "servername": "YOUR-SERVER-NAME",
+      "rstoollocation": "C:\\Program Files\\Autodesk\\Revit Server 2025\\Tools\\RevitServerToolCommand\\RevitServerTool.exe",
+      "temp_folder": "C:\\Temp\\RevitBackups\\RVT-25",
+      "root_folder_id": "google_drive_root_folder_id_for_rvt_25"
+    }
+  ]
+}
