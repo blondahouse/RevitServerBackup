@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
     )
     config_group.add_argument(
         "--config-dir",
-        help="Path to a folder with multiple *.json config files.",
+        help="Path to a folder with multiple *.json config files, e.g. configs\\active.",
     )
 
     parser.add_argument(
@@ -94,39 +94,24 @@ def load_json(path: Path) -> Dict[str, Any]:
         return json.load(config_file)
 
 
-def load_config_file(path: Path) -> List[Tuple[Path, str, Dict[str, Any]]]:
-    raw_config = load_json(path)
+def load_config_file(path: Path) -> Tuple[Path, str, Dict[str, Any]]:
+    config = load_json(path)
 
-    if "instances" not in raw_config:
-        instance_name = (
-            raw_config.get("name")
-            or raw_config.get("instance_id")
-            or raw_config.get("servername")
-            or path.stem
-        )
-        return [(path, str(instance_name), raw_config)]
-
-    shared_defaults = {
-        key: value for key, value in raw_config.items() if key != "instances"
-    }
-
-    instances = []
-    for index, instance_config in enumerate(raw_config["instances"], start=1):
-        merged_config = {**shared_defaults, **instance_config}
-
-        if merged_config.get("enabled", True) is False:
-            continue
-
-        instance_name = (
-            merged_config.get("name")
-            or merged_config.get("instance_id")
-            or merged_config.get("servername")
-            or f"{path.stem}_{index}"
+    if "instances" in config:
+        raise ValueError(
+            f"Config '{path}' uses the old multi-instance 'instances' format. "
+            "Use one JSON file per Revit Server instance and place active configs "
+            "in configs\\active."
         )
 
-        instances.append((path, str(instance_name), merged_config))
+    instance_name = (
+        config.get("name")
+        or config.get("instance_id")
+        or config.get("servername")
+        or path.stem
+    )
 
-    return instances
+    return path, str(instance_name), config
 
 
 def load_configs(args: argparse.Namespace) -> List[Tuple[Path, str, Dict[str, Any]]]:
@@ -135,20 +120,17 @@ def load_configs(args: argparse.Namespace) -> List[Tuple[Path, str, Dict[str, An
         if not config_dir.exists() or not config_dir.is_dir():
             raise FileNotFoundError(f"Config directory does not exist: {config_dir}")
 
-        configs: List[Tuple[Path, str, Dict[str, Any]]] = []
-        for config_path in sorted(config_dir.glob("*.json")):
-            configs.extend(load_config_file(config_path))
+        config_paths = sorted(config_dir.glob("*.json"))
+        if not config_paths:
+            raise ValueError(f"No *.json configs found in: {config_dir}")
 
-        if not configs:
-            raise ValueError(f"No enabled *.json configs found in: {config_dir}")
-
-        return configs
+        return [load_config_file(config_path) for config_path in config_paths]
 
     config_path = Path(args.config)
     if not config_path.exists():
         raise FileNotFoundError(f"Config file does not exist: {config_path}")
 
-    return load_config_file(config_path)
+    return [load_config_file(config_path)]
 
 
 def validate_config(config: Dict[str, Any], config_path: Path, instance_name: str) -> None:
