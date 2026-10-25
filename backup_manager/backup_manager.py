@@ -1,13 +1,16 @@
-import sqlite3
-import traceback
-from datetime import datetime, timezone
 import logging
-from pathlib import Path, PurePath
-from dataclasses import dataclass
-from utils.gdrive import GoogleDriveAPI
 import shutil
+import sqlite3
 import subprocess
 import time
+import traceback
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path, PureWindowsPath
+from typing import Optional
+
+from utils.gdrive import GoogleDriveAPI
+
 
 @dataclass
 class BackupConfig:
@@ -18,29 +21,21 @@ class BackupConfig:
     rstoollocation: str
     temp_folder: str
     root_folder_id: str
+    backup_to_target: bool = False
+    backup_to_gdrive: bool = True
 
 
 # noinspection SqlNoDataSourceInspection
 class BackupManager:
     LOCATION_QUERY = "SELECT ModelPath FROM 'ModelStorageTable'"
     MAX_DATE_QUERY = "SELECT MAX(Time) FROM 'ModelHistory'"
-    MODEL_SUBPATH = Path('Data/Model.db3')
-    DATETIME_FORMAT = '%Y-%m-%d %H:%M:%SZ'
+    MODEL_SUBPATH = Path("Data/Model.db3")
+    DATETIME_FORMAT = "%Y-%m-%d %H:%M:%SZ"
 
     def __init__(self, config: BackupConfig):
         """
         Initializes the BackupManager with the provided configuration.
-
-        Parameters:
-        config (BackupConfig): Configuration object containing:
-        source,
-        target,
-        database location,
-        server name,
-        tool location,
-        temp folder.
         """
-        # self.config = config
         self.source = Path(config.source)
         self.target = Path(config.target)
         self.temp_folder = Path(config.temp_folder)
@@ -48,6 +43,8 @@ class BackupManager:
         self.db_location = config.db_location
         self.servername = config.servername
         self.rstoollocation = config.rstoollocation
+        self.backup_to_target = config.backup_to_target
+        self.backup_to_gdrive = config.backup_to_gdrive
 
     def set_connection(self, db_path):
         return sqlite3.connect(db_path)
@@ -113,12 +110,6 @@ class BackupManager:
     def _get_all_paths(self, connection):
         """
         Retrieves all model paths from the database.
-
-        Parameters:
-        connection (sqlite3.Connection): The SQLite database connection.
-
-        Returns:
-        list: A list of model paths.
         """
         try:
             cursor = connection.cursor()
@@ -130,15 +121,8 @@ class BackupManager:
     def _get_edited_paths(self, connection):
         """
         Retrieves model paths that were edited in the last 24 hours.
-
-        Parameters:
-        connection (sqlite3.Connection): The SQLite database connection.
-
-        Returns:
-        list: A list of model paths edited in the last 24 hours.
         """
         model_paths = self._get_all_paths(connection)
-        # return [model_path for model_path in model_paths if self._was_edited_in_last_24_hours(model_path)]
         edited_paths = []
         for model_path in model_paths:
             try:
@@ -146,19 +130,12 @@ class BackupManager:
                     edited_paths.append(model_path)
             except Exception as e:
                 logging.error(f"Error checking edit status for model '{model_path}': {e}")
-                continue  # Skip this model, continue with others
+                continue
         return edited_paths
 
     def _get_specific_path(self, connection, specific_model):
         """
         Retrieves the path for a specific model.
-
-        Parameters:
-        connection (sqlite3.Connection): The SQLite database connection.
-        specific_model (str): The path of the specific model to be retrieved.
-
-        Returns:
-        list: A list containing the path of the specific model, or an empty list if not found.
         """
         try:
             cursor = connection.cursor()
@@ -174,19 +151,13 @@ class BackupManager:
     def _was_edited_in_last_24_hours(self, model_path):
         """
         Checks if a model was edited in the last 24 hours.
-
-        Parameters:
-        model_path (str): The path of the model to be checked.
-        connection (sqlite3.Connection): The SQLite database connection.
-
-        Returns:
-        bool: True if the model was edited in the last 24 hours, False otherwise.
         """
         try:
-            with self.set_connection(self._get_full_model_path(model_path)) as connection:
-                last_edit_datetime = self._get_last_edit_datetime(self._get_full_model_path(model_path), connection)
+            full_model_path = self._get_full_model_path(model_path)
+            with self.set_connection(full_model_path) as connection:
+                last_edit_datetime = self._get_last_edit_datetime(full_model_path, connection)
                 now_date_utc = datetime.now().astimezone(timezone.utc).replace(tzinfo=None)
-                return (now_date_utc - last_edit_datetime).total_seconds() < 86400  # 24 hours
+                return (now_date_utc - last_edit_datetime).total_seconds() < 86400
         except sqlite3.Error as e:
             logging.error(f"Database error determining if model '{model_path}' was edited in the last 24 hours: {e}")
             return False
@@ -195,6 +166,10 @@ class BackupManager:
             return False
 
     def _backup_selected_models(self, model_paths):
+        if not model_paths:
+            logging.info("No models selected for backup.")
+            return
+
         for model_path in model_paths:
             try:
                 self._perform_backup_for_model(model_path)
@@ -204,19 +179,36 @@ class BackupManager:
     def _perform_backup_for_model(self, model_path):
         """
         Performs the backup for a specific model.
-
-        Parameters:
-        model_path (str): The path of the model to be backed up.
         """
         logging.info(f"Starting backup for model: {model_path}")
         start_time = time.time()
-        temp_path = self.temp_folder / model_path
-        target_path = self.target / model_path
+
+        relative_model_path = self._to_relative_path(model_path)
+        temp_path = self.temp_folder / relative_model_path
+        target_path = self.target / relative_model_path
+
         try:
+            if not self.backup_to_target and not self.backup_to_gdrive:
+                logging.warning(
+                    "Both backup_to_target and backup_to_gdrive are disabled. "
+                    f"Skipping model: {model_path}"
+                )
+                return
+
             self._create_temp_rvt(model_path, temp_path, self.rstoollocation, self.servername)
-            # self._copy_to_target(model_path, temp_path, target_path)
-            self._upload_file_to_gdrive(temp_path, self.root_folder_id, model_path)
-            self._verify_backup(model_path, target_path)
+            self._verify_temp_backup(model_path, temp_path)
+
+            if self.backup_to_target:
+                self._copy_to_target(model_path, temp_path, target_path)
+                self._verify_backup(model_path, target_path)
+            else:
+                logging.info("Local/network target copy is disabled for this config.")
+
+            if self.backup_to_gdrive:
+                self._upload_file_to_gdrive(temp_path, self.root_folder_id, model_path)
+            else:
+                logging.info("Google Drive upload is disabled for this config.")
+
             self._clean_temp_folder(self.temp_folder)
             logging.info(f"Backup completed for model: {model_path} in {time.time() - start_time:.2f} seconds")
         except FileNotFoundError as e:
@@ -229,35 +221,18 @@ class BackupManager:
     def _get_full_model_path(self, model_path):
         """
         Constructs the full path to the model database file.
-
-        Parameters:
-        model_path (str): The path of the model.
-
-        Returns:
-        Path: The full path to the model database file.
         """
-        return self.source / model_path / self.MODEL_SUBPATH
+        return self.source / self._to_relative_path(model_path) / self.MODEL_SUBPATH
 
     def _get_last_edit_datetime(self, full_model_path, connection):
         """
         Retrieves the last edit datetime for a specific model from the database.
-
-        Parameters:
-        full_model_path (Path): The full path to the model database file.
-        connection (sqlite3.Connection): The SQLite database connection.
-
-        Returns:
-        datetime: The last edit datetime of the model.
-
-        Raises:
-        sqlite3.Error: If there is an error retrieving data from the database.
-        ValueError: If there is an error parsing the datetime.
         """
         try:
             cursor = connection.cursor()
             last_edit = cursor.execute(self.MAX_DATE_QUERY).fetchone()[0]
             if not last_edit:
-                last_edit = '1900-01-01 00:00:00Z'
+                last_edit = "1900-01-01 00:00:00Z"
             return datetime.strptime(last_edit, self.DATETIME_FORMAT)
         except sqlite3.Error as e:
             logging.error(f"Error retrieving last edit time for '{full_model_path}': {e}")
@@ -267,48 +242,66 @@ class BackupManager:
             raise
 
     @staticmethod
+    def _to_relative_path(model_path):
+        return Path(*PureWindowsPath(model_path).parts)
+
+    @staticmethod
     def _create_temp_rvt(model_path, temp_path, rstoollocation, servername):
         """
         Creates a temporary Revit file by running the backup subprocess for RevitServerTool.
-
-        Parameters:
-        model_path (str): The path of the model to be backed up.
-        temp_path (Path): The temporary path where the backup will be created.
-        rstoollocation (str): The location of the RevitServerTool executable.
-        servername (str): The name of the Revit server.
-
-        Raises:
-        Exception: If there is an error during the subprocess call.
         """
         logging.info(f"Performing backup for model: {model_path}")
+        temp_path.parent.mkdir(parents=True, exist_ok=True)
+
         try:
-            subprocess.run([
-                rstoollocation, "createLocalRvt", str(model_path),
-                "-server", servername,
-                "-destination", str(temp_path), "-overwrite"
-            ], capture_output=True)
+            result = subprocess.run(
+                [
+                    rstoollocation,
+                    "createLocalRvt",
+                    str(model_path),
+                    "-server",
+                    servername,
+                    "-destination",
+                    str(temp_path),
+                    "-overwrite",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            if result.stdout:
+                logging.info(f"RevitServerTool stdout for '{model_path}': {result.stdout.strip()}")
+            if result.stderr:
+                logging.warning(f"RevitServerTool stderr for '{model_path}': {result.stderr.strip()}")
+
+            result.check_returncode()
         except Exception as e:
             logging.error(f"Error during backup subprocess for model '{model_path}': {e}")
             raise
 
     @staticmethod
+    def _verify_temp_backup(model_path, temp_path):
+        """
+        Verifies that RevitServerTool created the temporary RVT file before upload/copy.
+        """
+        if not temp_path.exists() or not temp_path.is_file():
+            raise FileNotFoundError(f"Temporary backup file was not created for '{model_path}': {temp_path}")
+
+        file_size = temp_path.stat().st_size
+        if file_size <= 0:
+            raise ValueError(f"Temporary backup file is empty for '{model_path}': {temp_path}")
+
+        logging.info(f"Temporary backup file ready: {temp_path} ({file_size} bytes)")
+
+    @staticmethod
     def _copy_to_target(model_path, temp_path, target_path):
         """
         Copies the temporary backup file to the target location.
-
-        Parameters:
-        model_path (str): The path of the model being backed up.
-        temp_path (Path): The temporary path of the backup file.
-        target_path (Path): The target path where the backup will be copied.
-
-        Raises:
-        FileNotFoundError: If the source file to be copied does not exist.
-        Exception: If there is an error during the copying process.
         """
         try:
             logging.info(f"Copying backup for model: {model_path} to target location")
-            if not target_path.parent.exists():
-                target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(temp_path, target_path)
             logging.info(f"Copied backup from temporary location to target: {target_path}")
         except FileNotFoundError as e:
@@ -320,92 +313,81 @@ class BackupManager:
 
     @staticmethod
     def _upload_file_to_gdrive(
-                source_path,
-                drive_root_id,
-                drive_relative_path,
-                drive_api=None,
-                max_attempts=3,
-                wait_seconds=30
-        ):
-            """
-            Upload a file to Google Drive, creating the necessary folder structure.
+        source_path,
+        drive_root_id,
+        drive_relative_path,
+        drive_api: Optional[GoogleDriveAPI] = None,
+        max_attempts=3,
+        wait_seconds=30,
+    ):
+        """
+        Upload a file to Google Drive, creating the necessary folder structure.
+        """
+        try:
+            source = Path(source_path)
+            if not source.exists() or not source.is_file():
+                logging.error(f"Source file does not exist: {source}")
+                raise FileNotFoundError(f"Source file does not exist: {source}")
 
-            :param source_path: Full path to the source file.
-            :param drive_root_id: Google Drive folder ID for the root of backups.
-            :param drive_relative_path: Subfolder path in Google Drive (e.g. '2612_2_Tel_Aviv').
-            :param drive_api: Optionally, a GoogleDriveAPI instance to reuse.
-            :param max_attempts: Attempts to upload the file to Google Drive.
-            :param wait_seconds: Waiting time between attempts.
-            """
-            try:
-                source = Path(source_path)
-                if not source.exists() or not source.is_file():
-                    logging.error(f"Source file does not exist: {source}")
-                    raise FileNotFoundError(f"Source file does not exist: {source}")
+            if drive_api is None:
+                drive_api = GoogleDriveAPI("credentials.json", "token.json")
 
-                # Use provided API instance or create new one
-                if drive_api is None:
-                    drive_api = GoogleDriveAPI('credentials.json', 'token.json')
+            rel_path = PureWindowsPath(drive_relative_path)
+            folder_parts = rel_path.parts[:-1]
+            drive_filename = rel_path.name
 
-                # Split into folder path and filename
-                rel_path = PurePath(drive_relative_path)
-                folder_path = str(rel_path.parent)
-                drive_filename = rel_path.name
-
-                # 1. Ensure the full folder chain exists, get final folder ID
+            folder_id = drive_root_id
+            if folder_parts:
+                folder_path = "/".join(folder_parts)
                 try:
                     logging.info(
-                        f"Preparing to create/find folder. Full target path: '{folder_path}', drive_root_id: '{drive_root_id}'")
+                        f"Preparing to create/find Google Drive folder. "
+                        f"Full target path: '{folder_path}', drive_root_id: '{drive_root_id}'"
+                    )
                     folder_id = drive_api.get_or_create_folder(folder_path, drive_root_id)
-                    logging.info(f"Google Drive folder '{drive_relative_path}' ready (ID: {folder_id})")
+                    logging.info(f"Google Drive folder '{folder_path}' ready (ID: {folder_id})")
                 except Exception as e:
                     logging.error(
                         f"Error during get_or_create_folder for path '{folder_path}' "
                         f"under root ID '{drive_root_id}': {e}\n{traceback.format_exc()}"
                     )
+                    raise
 
-                # 2. Upload file to this folder, overwriting if exists
-                for attempt in range(1, max_attempts + 1):
-                    try:
-                        file_id = drive_api.upload_file(
-                            str(source),
-                            folder_id=folder_id,
-                            overwrite=True,
-                            drive_filename=drive_filename
-                        )
-                        logging.info(
-                            f"Uploaded '{source}' to Google Drive folder '{drive_relative_path}' as file ID {file_id}")
-                        break  # Success!
-                    except Exception as e:
-                        logging.error(f"Upload attempt {attempt} failed: {e}")
-                        if attempt < max_attempts:
-                            logging.info(f"Retrying in {wait_seconds} seconds...")
-                            time.sleep(wait_seconds)
-                        else:
-                            logging.error("Max upload attempts reached. Upload failed.")
-                            raise
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    file_id = drive_api.upload_file(
+                        str(source),
+                        folder_id=folder_id,
+                        overwrite=True,
+                        drive_filename=drive_filename,
+                    )
+                    logging.info(
+                        f"Uploaded '{source}' to Google Drive as '{drive_filename}' "
+                        f"with file ID {file_id}"
+                    )
+                    break
+                except Exception as e:
+                    logging.error(f"Upload attempt {attempt} failed: {e}")
+                    if attempt < max_attempts:
+                        logging.info(f"Retrying in {wait_seconds} seconds...")
+                        time.sleep(wait_seconds)
+                    else:
+                        logging.error("Max upload attempts reached. Upload failed.")
+                        raise
 
-            except Exception as e:
-                logging.error(f"Error uploading file to Google Drive: {e}")
-                raise
+        except Exception as e:
+            logging.error(f"Error uploading file to Google Drive: {e}")
+            raise
 
     @staticmethod
     def _verify_backup(model_path, target_path):
         """
         Verifies that the backup file exists and was recently updated.
-
-        Parameters:
-        model_path (str): The path of the model being backed up.
-        target_path (Path): The target path where the backup file is located.
-
-        Raises:
-        FileNotFoundError: If the target backup file does not exist.
-        Exception: If there is an error during verification or if the backup file is outdated.
         """
         try:
             if target_path.exists():
                 modification_time = datetime.fromtimestamp(target_path.stat().st_mtime, timezone.utc)
-                if (datetime.now().astimezone(timezone.utc) - modification_time).total_seconds() < 28800:  # 8 hours
+                if (datetime.now().astimezone(timezone.utc) - modification_time).total_seconds() < 28800:
                     logging.info(f"Backup successfully updated: {target_path}")
                 else:
                     logging.warning(f"Backup file not updated within the last 8 hours: {target_path}")
@@ -422,12 +404,6 @@ class BackupManager:
     def _clean_temp_folder(temp_folder):
         """
         Cleans up the temporary folder by deleting the specified file or directory.
-
-        Parameters:
-        temp_folder (Path): The path to the temporary folder or file to be cleaned up.
-
-        Raises:
-        Exception: If there is an error during the cleanup process.
         """
         try:
             if temp_folder.is_file():
