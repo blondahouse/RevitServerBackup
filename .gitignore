@@ -1,0 +1,14 @@
+# Local Revit Server instance configs
+configs/active/*.json
+configs/disabled/*.json
+
+# Keep directory placeholders
+!configs/active/.gitkeep
+!configs/disabled/.gitkeep
+
+# Runtime output
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
