@@ -1,0 +1,13 @@
+{
+  "name": "RVT-25",
+  "source": "C:\\ProgramData\\Autodesk\\Revit Server 2025\\Projects",
+  "target": "\\\\10.10.40.31\\BIM-Backup\\RVT-25",
+  "db_location": "C:\\ProgramData\\Autodesk\\Revit Server 2025\\Projects\\ModelLocationTable.db3",
+  "servername": "WIN-UFN5R6U38BF",
+  "rstoollocation": "C:\\Program Files\\Autodesk\\Revit Server 2025\\Tools\\RevitServerToolCommand\\RevitServerTool.exe",
+  "temp_folder": "C:\\Temp\\RevitBackups\\RVT-25",
+  "root_folder_id": "your_google_drive_root_folder_id",
+  "mode": "edited",
+  "backup_to_target": false,
+  "backup_to_gdrive": true
+}
